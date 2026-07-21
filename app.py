@@ -11,15 +11,31 @@ import datetime
 st.set_page_config(page_title="Hệ Thống MES - Cáp Mạng", page_icon="⚡", layout="wide")
 
 # ----------------------------------------------------
-# 2. KHỞI TẠO DỮ LIỆU KHO ẢO (SESSION STATE)
-# Để mô phỏng việc Tự động Nhập/Xuất kho khi in/quét QR
+# 2. KHỞI TẠO DỮ LIỆU KHO ẢO & TỪ ĐIỂN BOM MASTER
 # ----------------------------------------------------
 if 'inventory' not in st.session_state:
     st.session_state['inventory'] = pd.DataFrame(columns=["Mã QR", "Mã Hàng", "Loại", "Số Lô", "Số Mét (m)", "Trọng Lượng (kg)", "Thời Gian Nhập"])
 if 'history' not in st.session_state:
     st.session_state['history'] = []
 
-# Hàm tạo QR
+# TỪ ĐIỂN BOM MASTER (Làm cơ sở dữ liệu ngầm để Module 2 tự động gọi ra tính toán)
+BOM_DB = {
+    "TP": {
+        "SCP.BL.0.55BC": {"BTP": "BTP.XT.068", "Nhua_Vo_kg_m": 0.013838, "Mau_Vo": "PVC Xanh Dương"},
+        "SCP.WT.0.55BC": {"BTP": "BTP.XT.068", "Nhua_Vo_kg_m": 0.013838, "Mau_Vo": "PVC Trắng"},
+        "SCP.GR.0.55BC": {"BTP": "BTP.XT.068", "Nhua_Vo_kg_m": 0.013838, "Mau_Vo": "PVC Xanh Lá"}
+    },
+    "BTP": {
+        "BTP.XT.068": {
+            "Dong_kg_m": 0.017120, 
+            "Nhua_Loi_kg_m": 0.003964, 
+            "Nhua_Vach_kg_m": 0.003951, 
+            "HeSo_XT": 1.005
+        }
+    }
+}
+
+# Hàm tạo QR Code
 def create_qr_code(data_string):
     qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=6, border=2)
     qr.add_data(data_string)
@@ -33,27 +49,26 @@ def create_qr_code(data_string):
 # 3. SIDEBAR ĐIỀU HƯỚNG
 # ----------------------------------------------------
 st.sidebar.title("🏭 HỆ THỐNG MES CÁP MẠNG")
-st.sidebar.caption("Phiên bản Tích hợp Barcode & Kho Tự Động")
+st.sidebar.caption("Phiên bản Tích hợp BOM Động & Kho Barcode")
 
 module_choice = st.sidebar.radio(
     "CHỌN MÔ-ĐUN LÀM VIỆC:",
     [
         "1. Quản lý BOM Master & Định mức",
-        "2. Tách PO & Lập Lệnh Sản Xuất",
+        "2. Tiếp Nhận PO & Lập Lệnh Sản Xuất",
         "3. Nhật ký SX, Quản lý Kho & Quyết toán"
     ]
 )
 
 st.sidebar.divider()
-st.sidebar.info("💡 **Luồng QR Mới:**\nIn tem BTP/TP -> Auto Nhập Kho.\nQuét tem BTP tại máy bọc -> Auto Xuất Kho.")
+st.sidebar.info("💡 **Luồng Dữ Liệu:**\nPO chọn Mã TP -> Hệ thống tự link BOM Master -> Tự tách/gom lệnh LSX BTP & TP.")
 
 # ====================================================
-# MODULE 1: QUẢN LÝ BOM MASTER
+# MODULE 1: QUẢN LÝ BOM MASTER (Giữ nguyên 100%)
 # ====================================================
 if module_choice == "1. Quản lý BOM Master & Định mức":
     st.header("📋 MODULE 1: QUẢN LÝ BOM & ĐỊNH MỨC CHI TIẾT")
     
-    # NÚT TÌM KIẾM BOM
     search_bom = st.text_input("🔍 Tìm kiếm Mã Sản Phẩm / BOM (VD: SCP.BL, SCP.WT...):", placeholder="Nhập mã để tìm nhanh...")
     st.markdown("---")
 
@@ -83,7 +98,6 @@ if module_choice == "1. Quản lý BOM Master & Định mức":
         with b1:
             tl_pvc = st.number_input("Vỏ PVC (KG/m)", value=0.013838, format="%.6f")
             tl_4cap = st.number_input("BTP Xoắn tổng (KG/m)", value=0.021084, format="%.6f")
-            # Đã fix lỗi trùng ID bằng cách thêm tham số key="vach_tab1"
             tl_vach_boc = st.number_input("Nhựa vách (KG/m)", value=0.003951, format="%.6f", key="vach_tab1")
             tl_chi = st.number_input("Chỉ dệt/xé (KG/m)", value=0.000149, format="%.6f")
         with b2:
@@ -95,7 +109,6 @@ if module_choice == "1. Quản lý BOM Master & Định mức":
         xt1, xt2 = st.columns(2)
         with xt1:
             st.text_input("Mã BTP:", "BTP.XT.068", disabled=True)
-            # Đã fix lỗi trùng ID bằng cách thêm tham số key="vach_tab2"
             tl_vach_xt = st.number_input("Nhựa vách (KG/m)", value=0.003951, format="%.6f", key="vach_tab2")
         with xt2:
             hs_xt = st.number_input("Hệ số mét xoắn tổng", value=1.005, format="%.3f")
@@ -122,13 +135,12 @@ if module_choice == "1. Quản lý BOM Master & Định mức":
 
     with tab5:
         st.subheader("5. TỔNG HỢP NHU CẦU NVL (KG)")
-        st.info("💡 Lưu ý: Tính năng In Tem QR đã được dời sang Module 3 (Nhật ký Sản xuất) để đồng bộ luồng Nhập/Xuất kho tự động.")
         met_boc_act = met_tong_kh * hs_boc
         met_xt_act = met_boc_act * hs_xt
         sum_dong, sum_nhua = 0, 0
         for idx, row in df_loi.iterrows():
             m_loi = met_xt_act * df_xd.iloc[int(row["Cặp Xoắn"])]["Hệ số mét"] * row["Hệ số mét Lõi"]
-            sum_dong += m_loi * row["T.L Đồng (KG/m)"] * 2 # Nhân 2 vì mỗi cặp 2 sợi (tính giản lược)
+            sum_dong += m_loi * row["T.L Đồng (KG/m)"] * 2
             sum_nhua += m_loi * row["T.L Nhựa (KG/m)"] * 2
 
         df_nvl = pd.DataFrame({
@@ -139,34 +151,113 @@ if module_choice == "1. Quản lý BOM Master & Định mức":
 
 
 # ====================================================
-# MODULE 2: TÁCH PO & LẬP LỆNH SẢN XUẤT
+# MODULE 2: TÁCH PO & LẬP LỆNH SẢN XUẤT (HOÀN TOÀN MỚI)
 # ====================================================
-elif module_choice == "2. Tách PO & Lập Lệnh Sản Xuất":
-    st.header("⚙️ MODULE 2: TÁCH PO & PHÁT HÀNH LSX")
+elif module_choice == "2. Tiếp Nhận PO & Lập Lệnh Sản Xuất":
+    st.header("⚙️ MODULE 2: TÁCH PO THÔNG MINH (KẾ THỪA BOM MASTER)")
     
-    # NÚT TÌM KIẾM PO
-    search_po = st.text_input("🔍 Tìm kiếm nhanh PO / Lệnh Sản xuất:", placeholder="Nhập số PO (VD: PO-2026-001)...")
+    search_po = st.text_input("🔍 Tìm kiếm Lệnh Sản Xuất / PO:", placeholder="Nhập mã TP hoặc mã Lệnh...")
     st.markdown("---")
 
-    po_c1, po_c2 = st.columns(2)
-    with po_c1:
-        po1_pcs = st.number_input("PO-01: Cat6 Xanh Dương - Số cuộn:", value=900)
-    with po_c2:
-        po2_pcs = st.number_input("PO-02: Cat6 Trắng - Số cuộn:", value=396)
+    st.subheader("📝 1. Bảng Tiếp Nhận Đơn Hàng (PO)")
+    st.caption("Hướng dẫn: Chọn Mã Thành Phẩm từ danh sách. Hệ thống sẽ tự động đối chiếu BOM Master để xuất dữ liệu vật tư.")
+    
+    # Khởi tạo bảng nhập liệu PO động
+    default_po = pd.DataFrame({
+        "Mã PO": ["PO-2026-01", "PO-2026-02"],
+        "Mã Thành Phẩm (TP)": ["SCP.BL.0.55BC", "SCP.WT.0.55BC"],
+        "Số Lượng Kế Hoạch (Cuộn)": [900, 396]
+    })
+    
+    # Cho phép người dùng chỉnh sửa, thêm, xoá dòng PO trực tiếp trên giao diện
+    edited_po_df = st.data_editor(
+        default_po,
+        column_config={
+            "Mã Thành Phẩm (TP)": st.column_config.SelectboxColumn(
+                "Mã Thành Phẩm (TP)",
+                help="Chọn Mã Hàng TP đã cài đặt trong BOM Master",
+                options=list(BOM_DB["TP"].keys()),
+                required=True,
+            )
+        },
+        num_rows="dynamic",
+        use_container_width=True
+    )
 
-    if st.button("🔄 PHÂN TÍCH TÁCH PO & GOM LỆNH", type="primary"):
-        st.success("✅ Đã xử lý gom lệnh xoắn tổng và tách lệnh bọc vỏ thành công!")
-        m_btp_gom = ((po1_pcs + po2_pcs) * 305 * 1.04) * 1.005
+    c1, c2 = st.columns(2)
+    with c1: len_cuon = st.number_input("Chiều dài 1 cuộn TP (mét):", value=305.0)
+    with c2: ti_le_phong_ngua = st.number_input("Dự phòng hao hụt phế (%):", value=4.0) / 100
+
+    if st.button("🔄 CHẠY TỰ ĐỘNG TÁCH/GOM LỆNH LSX", type="primary"):
+        st.success("✅ Đã trích xuất dữ liệu thành công từ BOM Master!")
         
-        st.subheader("🔵 A. Lệnh BTP Gom (Kéo & Xoắn)")
-        st.dataframe(pd.DataFrame({"Mã LSX": ["LSX-BTP-01"], "Mã BTP": ["BTP.XT.068"], "Tổng Mét": [m_btp_gom]}), use_container_width=True)
+        # Lists lưu dữ liệu để tạo DataFrame
+        lsx_boc_list = []
+        tong_met_btp_gom = 0
         
-        st.subheader("🟢 B. Lệnh TP Tách (Bọc Vỏ)")
-        st.dataframe(pd.DataFrame({"Mã LSX": ["LSX-TP-BL", "LSX-TP-WT"], "Mã TP": ["SCP.BL", "SCP.WT"], "Mục tiêu (m)": [po1_pcs*305, po2_pcs*305]}), use_container_width=True)
+        # Quét từng PO người dùng nhập
+        for index, row in edited_po_df.iterrows():
+            ma_po = row["Mã PO"]
+            ma_tp = row["Mã Thành Phẩm (TP)"]
+            so_cuon = row["Số Lượng Kế Hoạch (Cuộn)"]
+            
+            if pd.isna(ma_tp) or ma_tp not in BOM_DB["TP"]:
+                continue
+            
+            # Lấy thông số từ BOM_DB
+            tp_bom = BOM_DB["TP"][ma_tp]
+            ma_btp_can_dung = tp_bom["BTP"]
+            
+            # Tính toán
+            met_tp_chuan = so_cuon * len_cuon
+            met_tp_ke_hoach = met_tp_chuan * (1 + ti_le_phong_ngua)
+            nhua_boc_can = met_tp_ke_hoach * tp_bom["Nhua_Vo_kg_m"]
+            
+            # Đưa vào list Tách Lệnh Bọc
+            lsx_boc_list.append({
+                "Nguồn PO": ma_po,
+                "Lệnh Bọc Máy Số": f"LSX-TP-{ma_tp.split('.')[1]}",
+                "Mã TP Đích": ma_tp,
+                "Màu Nhựa Bọc": tp_bom["Mau_Vo"],
+                "Mục Tiêu (mét)": met_tp_ke_hoach,
+                "Nhu Cầu Nhựa Bọc (KG)": nhua_boc_can
+            })
+            
+            # Cộng dồn số mét BTP cần thiết cho Gom lệnh (Gom tất cả các PO dùng chung mã BTP)
+            # Met BTP = Met TP * HeSo_XT của BTP đó
+            btp_bom = BOM_DB["BTP"][ma_btp_can_dung]
+            met_btp_thuc = met_tp_ke_hoach * btp_bom["HeSo_XT"]
+            tong_met_btp_gom += met_btp_thuc
+
+        # Hiển thị A. GOM LỆNH BTP
+        st.subheader("🔵 A. Lệnh Sản Xuất Bán Thành Phẩm (BTP) - Gom Chung")
+        # Giả định tất cả PO hiện tại dùng chung BTP.XT.068
+        btp_code = "BTP.XT.068"
+        btp_bom = BOM_DB["BTP"][btp_code]
+        
+        df_lsx_btp = pd.DataFrame({
+            "Mã Lệnh Gom": ["LSX-BTP-TỔNG"],
+            "Mã BTP Cần Kéo/Xoắn": [btp_code],
+            "Tổng Sản Lượng (m)": [tong_met_btp_gom],
+            "Tổng Đồng Cần (KG)": [tong_met_btp_gom * btp_bom["Dong_kg_m"]],
+            "Nhựa Lõi Cần (KG)": [tong_met_btp_gom * btp_bom["Nhua_Loi_kg_m"]],
+            "Nhựa Vách Cần (KG)": [tong_met_btp_gom * btp_bom["Nhua_Vach_kg_m"]]
+        })
+        st.dataframe(df_lsx_btp.style.format({
+            "Tổng Sản Lượng (m)": "{:,.1f}", "Tổng Đồng Cần (KG)": "{:,.2f}", 
+            "Nhựa Lõi Cần (KG)": "{:,.2f}", "Nhựa Vách Cần (KG)": "{:,.2f}"
+        }), use_container_width=True)
+
+        # Hiển thị B. TÁCH LỆNH BỌC
+        st.subheader("🟢 B. Lệnh Sản Xuất Thành Phẩm - Tách Riêng Từng Máy Bọc")
+        df_lsx_tp = pd.DataFrame(lsx_boc_list)
+        st.dataframe(df_lsx_tp.style.format({
+            "Mục Tiêu (mét)": "{:,.1f}", "Nhu Cầu Nhựa Bọc (KG)": "{:,.2f}"
+        }), use_container_width=True)
 
 
 # ====================================================
-# MODULE 3: NHẬT KÝ SX, KHO & QUYẾT TOÁN
+# MODULE 3: NHẬT KÝ SX, KHO & QUYẾT TOÁN (Giữ nguyên)
 # ====================================================
 elif module_choice == "3. Nhật ký SX, Quản lý Kho & Quyết toán":
     st.header("📦 MODULE 3: ĐIỀU HÀNH XƯỞNG & QUẢN LÝ KHO (BARCODE)")
@@ -179,7 +270,6 @@ elif module_choice == "3. Nhật ký SX, Quản lý Kho & Quyết toán":
         "📊 4. Quyết Toán PO"
     ])
 
-    # ------------- TAB 1: IN TEM & TỰ ĐỘNG NHẬP KHO -------------
     with tab_nhap:
         st.subheader("📥 GHI NHẬN SẢN LƯỢNG & TỰ ĐỘNG NHẬP KHO")
         c_in1, c_in2 = st.columns([1, 1])
@@ -195,16 +285,14 @@ elif module_choice == "3. Nhật ký SX, Quản lý Kho & Quyết toán":
             if mode_can == "Nhập tay":
                 trong_luong = st.number_input("Nhập trọng lượng (kg):", value=63.5)
             else:
-                trong_luong = so_met * 0.021084 # Giả lập hệ thống cân đọc được
+                trong_luong = so_met * 0.021084 
                 st.info(f"Đang kết nối COM Port... Cân đọc được: **{trong_luong:.2f} kg**")
 
         with c_in2:
             if st.button("🖨️ IN TEM & TỰ ĐỘNG NHẬP KHO", type="primary", use_container_width=True):
-                # Tạo Payload QR (Dữ liệu ngầm)
                 ma_qr = f"{ma_sp}_{so_lot}_{datetime.datetime.now().strftime('%H%M%S')}"
                 qr_payload = f"QRID:{ma_qr}|CODE:{ma_sp}|LOT:{so_lot}|QTY:{so_met}M|W:{trong_luong}KG"
                 
-                # Lưu vào Kho Ảo (Session State)
                 new_item = pd.DataFrame([{
                     "Mã QR": ma_qr, "Mã Hàng": ma_sp, "Loại": loai_sp, "Số Lô": so_lot, 
                     "Số Mét (m)": so_met, "Trọng Lượng (kg)": trong_luong, 
@@ -215,29 +303,24 @@ elif module_choice == "3. Nhật ký SX, Quản lý Kho & Quyết toán":
                 
                 st.success("✅ Đã ghi nhận sản lượng vào Kho và Tạo tem thành công!")
                 
-                # Hiển thị tem QR
                 qr_bytes = create_qr_code(qr_payload)
                 st.image(qr_bytes, caption=f"Tem Dán Lên Cuộn - Mã QR: {ma_qr}", width=200)
                 st.download_button("⬇️ Tải Tem (In Nhiệt)", data=qr_bytes, file_name=f"QR_{ma_qr}.png", mime="image/png")
 
-    # ------------- TAB 2: QUÉT TEM & TỰ ĐỘNG XUẤT KHO -------------
     with tab_xuat:
         st.subheader("📤 QUÉT MÃ BTP ĐỂ ĐƯA VÀO CÔNG ĐOẠN TIẾP THEO")
         st.info("Mô phỏng: Công nhân dùng súng bắn mã vạch quét mã QR trên cuộn BTP để xuất vật tư ra chạy máy bọc.")
         
-        # Nhập tay hoặc giả lập súng bắn barcode
         scan_data = st.text_input("🔫 QUÉT MÃ QR (Đưa con trỏ chuột vào đây và bấm cò súng):", placeholder="VD: BTP.XT.068_LOT-2026A_145023")
         
         if st.button("XÁC NHẬN XUẤT KHO"):
             if scan_data in st.session_state['inventory']["Mã QR"].values:
-                # Trừ đi khỏi kho ảo
                 st.session_state['inventory'] = st.session_state['inventory'][st.session_state['inventory']["Mã QR"] != scan_data]
                 st.session_state['history'].append(f"🔴 XUẤT KHO: Đưa vào SX cuộn BTP có QR: {scan_data}")
                 st.success(f"✅ Đã xuất kho thành công cuộn BTP: {scan_data}!")
             else:
                 st.error("❌ Mã QR không tồn tại trong kho hoặc đã được xuất!")
 
-    # ------------- TAB 3: TỒN KHO HIỆN TẠI -------------
     with tab_ton:
         st.subheader("🏢 TÌNH TRẠNG KHO BTP & THÀNH PHẨM HIỆN TẠI")
         search_kho = st.text_input("🔍 Tìm kiếm tồn kho (Nhập Mã hàng, Số lô...):")
@@ -249,10 +332,9 @@ elif module_choice == "3. Nhật ký SX, Quản lý Kho & Quyết toán":
         st.dataframe(df_kho, use_container_width=True)
         
         st.markdown("**Lịch sử Nhập/Xuất gần đây:**")
-        for log in reversed(st.session_state['history'][-5:]): # Show 5 newest logs
+        for log in reversed(st.session_state['history'][-5:]):
             st.text(log)
 
-    # ------------- TAB 4: QUYẾT TOÁN PO -------------
     with tab_qt:
         st.subheader("📊 QUYẾT TOÁN VẬT TƯ LỆNH SẢN XUẤT / PO")
         search_po_qt = st.selectbox("🔍 Chọn PO cần Quyết toán:", ["PO-01 (SCP.BL)", "PO-02 (SCP.WT)"])
