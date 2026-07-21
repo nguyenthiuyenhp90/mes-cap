@@ -48,7 +48,7 @@ st.sidebar.divider()
 st.sidebar.info("💡 **Luồng QR Mới:**\nIn tem BTP/TP -> Auto Nhập Kho.\nQuét tem BTP tại máy bọc -> Auto Xuất Kho.")
 
 # ====================================================
-# MODULE 1: QUẢN LÝ BOM MASTER (Đã thêm Tìm kiếm, Giữ nguyên 5 tab)
+# MODULE 1: QUẢN LÝ BOM MASTER
 # ====================================================
 if module_choice == "1. Quản lý BOM Master & Định mức":
     st.header("📋 MODULE 1: QUẢN LÝ BOM & ĐỊNH MỨC CHI TIẾT")
@@ -83,7 +83,8 @@ if module_choice == "1. Quản lý BOM Master & Định mức":
         with b1:
             tl_pvc = st.number_input("Vỏ PVC (KG/m)", value=0.013838, format="%.6f")
             tl_4cap = st.number_input("BTP Xoắn tổng (KG/m)", value=0.021084, format="%.6f")
-            tl_vach_boc = st.number_input("Nhựa vách (KG/m)", value=0.003951, format="%.6f")
+            # Đã fix lỗi trùng ID bằng cách thêm tham số key="vach_tab1"
+            tl_vach_boc = st.number_input("Nhựa vách (KG/m)", value=0.003951, format="%.6f", key="vach_tab1")
             tl_chi = st.number_input("Chỉ dệt/xé (KG/m)", value=0.000149, format="%.6f")
         with b2:
             hs_boc = st.number_input("Hệ số mét bọc", value=1.0)
@@ -94,7 +95,8 @@ if module_choice == "1. Quản lý BOM Master & Định mức":
         xt1, xt2 = st.columns(2)
         with xt1:
             st.text_input("Mã BTP:", "BTP.XT.068", disabled=True)
-            tl_vach_xt = st.number_input("Nhựa vách (KG/m)", value=0.003951, format="%.6f")
+            # Đã fix lỗi trùng ID bằng cách thêm tham số key="vach_tab2"
+            tl_vach_xt = st.number_input("Nhựa vách (KG/m)", value=0.003951, format="%.6f", key="vach_tab2")
         with xt2:
             hs_xt = st.number_input("Hệ số mét xoắn tổng", value=1.005, format="%.3f")
 
@@ -137,7 +139,7 @@ if module_choice == "1. Quản lý BOM Master & Định mức":
 
 
 # ====================================================
-# MODULE 2: TÁCH PO & LẬP LỆNH SẢN XUẤT (Đã thêm Tìm kiếm)
+# MODULE 2: TÁCH PO & LẬP LỆNH SẢN XUẤT
 # ====================================================
 elif module_choice == "2. Tách PO & Lập Lệnh Sản Xuất":
     st.header("⚙️ MODULE 2: TÁCH PO & PHÁT HÀNH LSX")
@@ -164,7 +166,7 @@ elif module_choice == "2. Tách PO & Lập Lệnh Sản Xuất":
 
 
 # ====================================================
-# MODULE 3: NHẬT KÝ SX, KHO & QUYẾT TOÁN (Giao diện chuẩn MES)
+# MODULE 3: NHẬT KÝ SX, KHO & QUYẾT TOÁN
 # ====================================================
 elif module_choice == "3. Nhật ký SX, Quản lý Kho & Quyết toán":
     st.header("📦 MODULE 3: ĐIỀU HÀNH XƯỞNG & QUẢN LÝ KHO (BARCODE)")
@@ -223,7 +225,7 @@ elif module_choice == "3. Nhật ký SX, Quản lý Kho & Quyết toán":
         st.subheader("📤 QUÉT MÃ BTP ĐỂ ĐƯA VÀO CÔNG ĐOẠN TIẾP THEO")
         st.info("Mô phỏng: Công nhân dùng súng bắn mã vạch quét mã QR trên cuộn BTP để xuất vật tư ra chạy máy bọc.")
         
-        # Nhập tay hoặc giả lập súng bắn barcode (Súng barcode thực chất là bàn phím tự động nhập và Enter)
+        # Nhập tay hoặc giả lập súng bắn barcode
         scan_data = st.text_input("🔫 QUÉT MÃ QR (Đưa con trỏ chuột vào đây và bấm cò súng):", placeholder="VD: BTP.XT.068_LOT-2026A_145023")
         
         if st.button("XÁC NHẬN XUẤT KHO"):
