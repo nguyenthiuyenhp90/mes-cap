@@ -3,20 +3,29 @@ import pandas as pd
 import sqlite3
 import qrcode
 from io import BytesIO
-from PIL import Image
 import datetime
 
-# --- 1. CẤU HÌNH TRANG & KẾT NỐI DATABASE ---
-st.set_page_config(page_title="Hệ Thống MES Quản Lý Sản Xuất Dây Cáp", layout="wide")
+# --- 1. CẤU HÌNH TRANG & GIAO DIỆN ---
+st.set_page_config(page_title="MES CÁP ĐIỆN - HỆ THỐNG QUẢN LÝ SẢN XUẤT", layout="wide", page_icon="🏭")
+
+# Custom CSS cho giao diện chuyên nghiệp
+st.markdown("""
+    <style>
+    .main { background-color: #f8f9fa; }
+    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    .stTabs [data-baseweb="tab-list"] { gap: 8px; }
+    .stTabs [data-baseweb="tab"] { background-color: #ffffff; border-radius: 6px; padding: 10px 20px; font-weight: bold; }
+    .stTabs [aria-selected="true"] { background-color: #0d6efd !important; color: white !important; }
+    </style>
+""", unsafe_allow_html=True)
 
 def get_connection():
-    conn = sqlite3.connect("mes_cable_factory.db", check_same_thread=False)
-    return conn
+    return sqlite3.connect("mes_cable_v6.db", check_same_thread=False)
 
 conn = get_connection()
 cursor = conn.cursor()
 
-# Khởi tạo các bảng dữ liệu nếu chưa có
+# --- 2. KHỞI TẠO CƠ SỞ DỮ LIỆU ---
 def init_db():
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS bom_master (
@@ -35,13 +44,17 @@ def init_db():
         po_code TEXT PRIMARY KEY,
         tp_code TEXT,
         plan_meters REAL,
-        created_date TEXT
+        created_date TEXT,
+        status TEXT
     )''')
 
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS production_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         log_date TEXT,
+        shift_name TEXT,
+        machine_code TEXT,
+        worker_name TEXT,
         po_code TEXT,
         entry_type TEXT,
         btp_code TEXT,
@@ -53,7 +66,7 @@ def init_db():
     )''')
     conn.commit()
 
-    # Thêm dữ liệu BOM mẫu nếu bảng BOM trống
+    # Dữ liệu BOM mẫu chuẩn
     cursor.execute("SELECT COUNT(*) FROM bom_master")
     if cursor.fetchone()[0] == 0:
         sample_bom = [
@@ -72,209 +85,268 @@ def init_db():
 
 init_db()
 
-st.title("🏭 HỆ THỐNG MES QUẢN LÝ SẢN XUẤT DÂY CÁP - V5")
+# --- 3. TIÊU ĐỀ ỨNG DỤNG ---
+col_head1, col_head2 = st.columns([4, 1])
+with col_head1:
+    st.title("🏭 MES CÁP ĐIỆN - HỆ THỐNG DIỀU HÀNH SẢN XUẤT")
+    st.caption("Phiên bản V6 Chuyên Nghiệp | Quản lý BOM, PO, Nhật ký Ca, Tồn Kho BTP & Báo cáo Excel")
+with col_head2:
+    st.image("https://img.icons8.com/color/96/factory.png", width=70)
+
 st.markdown("---")
 
-# --- 2. TẠO TABS CHỨC NĂNG ---
-tab1, tab2, tab3, tab4 = st.tabs([
+# --- 4. CÁC PHÂN HỆ CHÍNH ---
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📋 1. Quản Lý BOM Master", 
-    "📦 2. Tạo PO & Bung BOM", 
-    "🏷️ 3. Nhật Ký SX & In Tem QR (Cân Auto Mét)", 
-    "📊 4. Dashboard & Cảnh Báo Tồn Máy"
+    "📦 2. Đơn Hàng PO & Bung BOM", 
+    "🏷️ 3. Nhật Ký Ca & Mã QR (Auto Mét)", 
+    "📊 4. Dashboard Tiến Độ & Floor Stock",
+    "📁 5. Báo Cáo & Xuất File Excel"
 ])
 
 # ==========================================
 # TAB 1: QUẢN LÝ BOM MASTER
 # ==========================================
 with tab1:
-    st.header("Danh Mục Định Mức BOM Chuẩn Cho Từng Thành Phẩm")
-    df_bom = pd.read_sql_query("SELECT tp_code, stage, btp_code, kg_per_m, shrinkage, scrap_std, nvl_main FROM bom_master", conn)
+    st.subheader("📋 Định Mức Vật Tư & Quy Cách Cáp (BOM Master)")
+    df_bom = pd.read_sql_query("SELECT tp_code AS [Mã TP], stage AS [Công Đoạn], btp_code AS [Mã BTP], kg_per_m AS [Kg/Mét Chuẩn], shrinkage AS [Hệ Số Co Ngót], scrap_std*100 AS [Tỷ Lệ Phế %], nvl_main AS [Vật Tư Chính] FROM bom_master", conn)
     st.dataframe(df_bom, use_container_width=True)
     
-    with st.expander("➕ Thêm / Cập nhật BOM cho mã Thành Phẩm mới"):
+    with st.expander("➕ Thêm Mã Thành Phẩm / Công Đoạn BOM Mới"):
         col1, col2, col3 = st.columns(3)
         with col1:
-            new_tp = st.text_input("Mã Thành Phẩm (TP)", "TP-CAT6-NEW")
+            new_tp = st.text_input("Mã Thành Phẩm (TP)", "TP-CAT6A-SHIELD")
             new_stage = st.selectbox("Công đoạn", ["1. Kéo Lõi", "2. Xoắn Đôi", "3. Bọc Vỏ"])
-            new_btp = st.text_input("Mã BTP đầu ra", "BTP-LOI-081")
+            new_btp = st.text_input("Mã BTP đầu ra", "BTP-LOI-085")
         with col2:
-            new_kg_m = st.number_input("Trọng lượng chuẩn (kg/m)", value=0.0207, format="%.4f")
-            new_shrink = st.number_input("Hệ số co ngót/xoắn", value=1.025, format="%.3f")
+            new_kg_m = st.number_input("Trọng lượng chuẩn (kg/m)", value=0.0220, format="%.4f")
+            new_shrink = st.number_input("Hệ số co ngót/xoắn", value=1.030, format="%.3f")
         with col3:
-            new_scrap = st.number_input("Tỷ lệ phế tiêu chuẩn (%)", value=1.5) / 100
-            new_nvl = st.text_input("Vật tư chính tiêu hao", "Đồng 7/0.150")
+            new_scrap = st.number_input("Phế tiêu chuẩn (%)", value=1.5) / 100
+            new_nvl = st.text_input("Vật tư chính tiêu hao", "Đồng 0.85mm + HDPE")
             
-        if st.button("Lưu Quy Cách BOM"):
+        if st.button("💾 Lưu BOM Sản Phẩm"):
             cursor.execute('''
             INSERT INTO bom_master (tp_code, stage, btp_code, kg_per_m, shrinkage, scrap_std, nvl_main)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             ''', (new_tp, new_stage, new_btp, new_kg_m, new_shrink, new_scrap, new_nvl))
             conn.commit()
-            st.success(f"Đã thêm thành công BOM cho {new_tp}!")
+            st.success(f"Đã lưu thành công quy cách BOM cho {new_tp}!")
             st.rerun()
 
 # ==========================================
-# TAB 2: TẠO PO & BUNG BOM TỰ ĐỘNG
+# TAB 2: ĐƠN HÀNG PO & BUNG BOM
 # ==========================================
 with tab2:
-    st.header("Tạo Đơn Hàng PO & Tự Động Tính Nhu Cầu BTP / Vật Tư")
+    st.subheader("📦 Quản Lý Lệnh Sản Xuất (PO) & Nhu Cầu Vật Tư")
     
-    # Lấy danh sách TP từ BOM Master
-    tp_list = cursor.execute("SELECT DISTINCT tp_code FROM bom_master").fetchall()
-    tp_options = [t[0] for t in tp_list]
+    tp_options = [t[0] for t in cursor.execute("SELECT DISTINCT tp_code FROM bom_master").fetchall()]
     
-    col_a, col_b, col_c = st.columns(3)
-    with col_a:
-        po_code_input = st.text_input("Mã Đơn Hàng PO", "PO-202607-01")
-    with col_b:
-        selected_tp = st.selectbox("Chọn Mã Thành Phẩm (TP)", tp_options)
-    with col_c:
-        plan_meters_input = st.number_input("Số lượng Kế hoạch (Mét)", value=100000, step=5000)
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        po_code_input = st.text_input("Mã Đơn Hàng PO", f"PO-{datetime.date.today().strftime('%Y%m')}-01")
+    with c2:
+        selected_tp = st.selectbox("Chọn Mã Thành Phẩm", tp_options)
+    with c3:
+        plan_meters_input = st.number_input("Số Lượng Kế Hoạch (Mét)", value=100000, step=10000)
         
-    if st.button("🚀 Tạo PO & Bung BOM Tự Động"):
-        # Lưu PO vào database
-        cursor.execute("INSERT OR REPLACE INTO po_orders VALUES (?, ?, ?, ?)",
-                       (po_code_input, selected_tp, plan_meters_input, str(datetime.date.today())))
+    if st.button("🚀 Khởi Tạo PO & Tính Nhu Cầu NVL"):
+        cursor.execute("INSERT OR REPLACE INTO po_orders VALUES (?, ?, ?, ?, ?)",
+                       (po_code_input, selected_tp, plan_meters_input, str(datetime.date.today()), "Đang Sản Xuất"))
         conn.commit()
-        st.success(f"Đã tạo PO {po_code_input} thành công!")
+        st.success(f"Đã lập đơn hàng {po_code_input} thành công!")
         
-    st.subheader(f"📄 Chi Tiết Mẫu Bung BOM Cho PO: {po_code_input}")
+    st.markdown("---")
+    st.write(f"### 📄 Chi Tiết Kế Hoạch BTP & Cấp NVL Cho PO: **{po_code_input}**")
     
-    # Bung BOM tự động
     df_tp_bom = pd.read_sql_query("SELECT * FROM bom_master WHERE tp_code = ?", conn, params=(selected_tp,))
     if not df_tp_bom.empty:
         bom_calc = []
-        for idx, row in df_tp_bom.iterrows():
+        for _, row in df_tp_bom.iterrows():
             target_m = plan_meters_input * row["shrinkage"] * (1 + row["scrap_std"])
             target_kg = target_m * row["kg_per_m"]
             bom_calc.append({
                 "Công Đoạn": row["stage"],
-                "Mã BTP Đầu Ra": row["btp_code"],
+                "Mã BTP Cần Chạy": row["btp_code"],
                 "Hệ Số Co Ngót": row["shrinkage"],
-                "Mục Tiêu Mét (BTP)": round(target_m, 0),
-                "Mục Tiêu KG (BTP)": round(target_kg, 2),
-                "Vật Tư Chính Cần Cấp": row["nvl_main"]
+                "KH Mét BTP": f"{round(target_m, 0):,} m",
+                "KH Trọng Lượng BTP": f"{round(target_kg, 1):,} kg",
+                "NVL Cần Cấp Cho Kho": row["nvl_main"]
             })
         st.table(pd.DataFrame(bom_calc))
 
 # ==========================================
-# TAB 3: NHẬT KÝ SẢN XUẤT & QUY ĐỔI KÝ -> MÉT TỰ ĐỘNG
+# TAB 3: NHẬT KÝ CA & IN TEM QR AUTO MÉT
 # ==========================================
 with tab3:
-    st.header("Ghi Nhận Sản Lượng Ca Running & In Tem QR")
+    st.subheader("📝 Nhập Nhật Ký Ca Chạy & In Tem Mã QR BTP")
     
-    po_list = [p[0] for p in cursor.execute("SELECT po_code FROM po_orders").fetchall()]
+    po_list = [p[0] for p in cursor.execute("SELECT po_code FROM po_orders WHERE status = 'Đang Sản Xuất'").fetchall()]
     
     if not po_list:
-        st.warning("Vui lòng tạo ít nhất 1 PO ở Tab 2 trước khi nhập nhật ký!")
+        st.warning("Chưa có PO nào ở trạng thái 'Đang Sản Xuất'. Vui lòng tạo PO ở Tab 2!")
     else:
-        col_log1, col_log2 = st.columns(2)
+        col_f1, col_f2 = st.columns([3, 2])
         
-        with col_log1:
-            sel_po = st.selectbox("Chọn Mã PO", po_list, key="log_po")
-            # Tìm TP của PO này
+        with col_f1:
+            st.write("##### 1. Thông Tin Ca & Máy Sản Xuất")
+            cc1, cc2, cc3 = st.columns(3)
+            with cc1:
+                log_shift = st.selectbox("Chọn Ca", ["Ca 1 (Day)", "Ca 2 (Night)", "Ca 3"])
+            with cc2:
+                log_machine = st.selectbox("Mã Máy Running", ["MÁY KÉO-01", "MÁY KÉO-02", "MÁY XOẮN-01", "MÁY XOẮN-02", "MÁY BỌC VỎ-01"])
+            with cc3:
+                log_worker = st.text_input("Tên Công Nhân / Trưởng Ca", "Nguyễn Văn A")
+                
+            st.write("##### 2. Chi Tiết Sản Lượng Thực Tế")
+            sel_po = st.selectbox("Chọn Mã PO", po_list)
             tp_of_po = cursor.execute("SELECT tp_code FROM po_orders WHERE po_code = ?", (sel_po,)).fetchone()[0]
             
-            # Tìm danh sách BTP của TP này
             btp_rows = cursor.execute("SELECT btp_code, kg_per_m FROM bom_master WHERE tp_code = ?", (tp_of_po,)).fetchall()
             btp_dict = {b[0]: b[1] for b in btp_rows}
             
-            sel_btp = st.selectbox("Chọn BTP Sản Xuất", list(btp_dict.keys()))
+            sel_btp = st.selectbox("Mã BTP / Thành Phẩm Cân Được", list(btp_dict.keys()))
             kg_per_m_std = btp_dict[sel_btp]
             
-            st.info(f"💡 Trọng lượng BOM tiêu chuẩn: **{kg_per_m_std} kg/m**")
+            entry_type = st.radio("Phân loại nguồn BTP", ["Sản xuất mới (Tính tiêu hao vào PO)", "Nhập điều chuyển (Tồn cuộn/bin đơn cũ)"], horizontal=True)
             
-            entry_type = st.radio("Phân loại nhập", ["SX mới (Tính hao hụt vào PO)", "Nhập điều chuyển (BTP tồn đơn cũ)"])
+            st.info(f"⚖️ Định mức BOM chuẩn của **{sel_btp}** là: **{kg_per_m_std} kg/m**")
             
-            # --- CÂN TỰ ĐỘNG HOẶC NHẬP TAY KG ---
-            input_kg = st.number_input("⚖️ Nhập Số KG Thực Tế (Cân Bàn)", value=414.0, step=1.0)
+            # CÂN TỰ ĐỘNG HOẶC NHẬP TAY KG
+            input_kg = st.number_input("Mức Cân Trọng Lượng BTP (KG)", value=414.0, step=1.0)
             
-            # --- TỰ ĐỘNG NHẢY SỐ MÉT DỰA TRÊN BOM ---
-            auto_calc_meters = round(input_kg / kg_per_m_std) if kg_per_m_std > 0 else 0
+            # TỰ ĐỘNG nhảy mét từ BOM
+            auto_meters = round(input_kg / kg_per_m_std) if kg_per_m_std > 0 else 0
             
-            st.metric(label="📏 Số Mét Tự Động Quy Đổi (Từ BOM)", value=f"{auto_calc_meters:,} m")
+            st.markdown(f"### 📏 Số Mét Tự Động Quy Đổi: <span style='color:#0d6efd;'>{auto_meters:,} Mét</span>", unsafe_allow_html=True)
             
-            nvl_used = st.number_input("NVL Thực Dùng (kg)", value=input_kg + 5.0)
-            scrap_kg = st.number_input("Phế Liệu Cân Được (kg)", value=2.0)
-            error_code = st.selectbox("Lý Do Phế", ["- Không lỗi", "K - Kẹt nhựa đùn", "D - Đứt dây đồng", "C - Cắt đầu đuôi cuộn", "S - Lệch màu nhựa"])
+            c_nvl1, c_nvl2 = st.columns(2)
+            with c_nvl1:
+                nvl_used = st.number_input("NVL / BTP Cấp Thực Dùng (kg)", value=input_kg + 3.0)
+            with c_nvl2:
+                scrap_kg = st.number_input("Phế Cân Được (kg)", value=1.5)
+                
+            error_code = st.selectbox("Mã Lý Do Phế Liệu", ["- Không lỗi", "K - Kẹt nhựa/nghẹt đùn", "D - Đứt dây đồng", "C - Cắt đầu đuôi công nghệ", "S - Lệch màu nhựa", "L - Lệch đường kính OD"])
 
-        with col_log2:
-            st.subheader("🏷️ Xem Trước Tem Mã QR BTP")
-            qr_data = f"PO:{sel_po}|BTP:{sel_btp}|KG:{input_kg}|M:{auto_calc_meters}|DATE:{datetime.date.today()}"
+        with col_f2:
+            st.write("##### 🏷️ Khởi Tạo Tem Mã QR Dán Bin BTP")
+            qr_text = f"PO:{sel_po}|BTP:{sel_btp}|KG:{input_kg}|M:{auto_meters}|MÁY:{log_machine}|DATE:{datetime.date.today()}"
             
-            # Tạo mã QR Image
-            qr = qrcode.QRCode(version=1, box_size=6, border=2)
-            qr.add_data(qr_data)
+            qr = qrcode.QRCode(version=1, box_size=8, border=2)
+            qr.add_data(qr_text)
             qr.make(fit=True)
-            img_qr = qr.make_image(fill_color="black", back_color="white")
+            img_qr = qr.make_image(fill_color="#000000", back_color="#ffffff")
             
             buf = BytesIO()
             img_qr.save(buf, format="PNG")
-            st.image(buf.getvalue(), caption=f"Mã QR hóa: {qr_data}", width=200)
+            st.image(buf.getvalue(), caption=f"Tem QR mã hóa: {qr_text}", width=220)
             
-            if st.button("💾 Lưu Nhật Ký & In Tem QR"):
+            if st.button("💾 Bấm Lưu Nhật Ký & Xã Tem QR", use_container_width=True):
                 cursor.execute('''
-                INSERT INTO production_logs (log_date, po_code, entry_type, btp_code, weight_kg, calc_meters, nvl_used_kg, scrap_kg, error_code)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (str(datetime.date.today()), sel_po, entry_type, sel_btp, input_kg, auto_calc_meters, nvl_used, scrap_kg, error_code))
+                INSERT INTO production_logs (log_date, shift_name, machine_code, worker_name, po_code, entry_type, btp_code, weight_kg, calc_meters, nvl_used_kg, scrap_kg, error_code)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (str(datetime.date.today()), log_shift, log_machine, log_worker, sel_po, entry_type, sel_btp, input_kg, auto_meters, nvl_used, scrap_kg, error_code))
                 conn.commit()
-                st.success(f"Đã ghi nhận {auto_calc_meters:,} mét cho {sel_btp} vào PO {sel_po}!")
+                st.balloons()
+                st.success(f"Đã lưu nhật ký ca: {auto_meters:,}m ({input_kg}kg) BTP thành công!")
 
 # ==========================================
-# TAB 4: DASHBOARD & CẢNH BÁO TỒN DỞ DANG (FLOOR STOCK)
+# TAB 4: DASHBOARD TIẾN ĐỘ & FLOOR STOCK
 # ==========================================
 with tab4:
-    st.header("Báo Cáo Tiến Độ PO & Kiểm Soát Tồn Dở Dang Tại Máy")
+    st.subheader("📊 Báo Cáo Tiến Độ PO Real-Time & Tồn Dở Dang Tại Máy")
     
-    po_dash_list = [p[0] for p in cursor.execute("SELECT po_code FROM po_orders").fetchall()]
-    if po_dash_list:
-        sel_dash_po = st.selectbox("Chọn PO Cần Giám Sát", po_dash_list)
+    all_pos = [p[0] for p in cursor.execute("SELECT po_code FROM po_orders").fetchall()]
+    if all_pos:
+        dash_po = st.selectbox("Chọn Đơn Hàng PO Cần Giám Sát Tiến Độ", all_pos)
         
-        # Lấy thông tin PO
-        po_info = cursor.execute("SELECT tp_code, plan_meters FROM po_orders WHERE po_code = ?", (sel_dash_po,)).fetchone()
-        tp_code_po, plan_m = po_info[0], po_info[1]
+        po_meta = cursor.execute("SELECT tp_code, plan_meters, status FROM po_orders WHERE po_code = ?", (dash_po,)).fetchone()
+        tp_code_po, plan_m, po_status = po_meta[0], po_meta[1], po_meta[2]
         
-        st.subheader(f"📌 Tiến Độ Sản Xuất PO: {sel_dash_po} (Thành phẩm: {tp_code_po} - KH: {plan_m:,} m)")
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Kế Hoạch PO (Thành Phẩm)", f"{plan_m:,} m")
+        m2.metric("Mã Quy Cách", tp_code_po)
+        m3.metric("Trạng Thái PO", po_status)
         
-        # Báo cáo theo từng công đoạn
-        df_logs = pd.read_sql_query("SELECT * FROM production_logs WHERE po_code = ?", conn, params=(sel_dash_po,))
-        df_bom_tp = pd.read_sql_query("SELECT stage, btp_code, shrinkage, scrap_std FROM bom_master WHERE tp_code = ?", conn, params=(tp_code_po,))
+        st.markdown("---")
+        st.write("##### 📌 Tiến Độ Hoàn Thành Theo Từng Công Đoạn (So Với BOM Kế Hoạch)")
         
-        dash_summary = []
-        for _, b_row in df_bom_tp.iterrows():
+        df_logs_po = pd.read_sql_query("SELECT * FROM production_logs WHERE po_code = ?", conn, params=(dash_po,))
+        df_bom_po = pd.read_sql_query("SELECT stage, btp_code, shrinkage, scrap_std FROM bom_master WHERE tp_code = ?", conn, params=(tp_code_po,))
+        
+        dash_table = []
+        for _, b_row in df_bom_po.iterrows():
             btp = b_row["btp_code"]
             target_m = plan_m * b_row["shrinkage"] * (1 + b_row["scrap_std"])
             
-            # Tổng đã làm thực tế
-            actual_m = df_logs[df_logs["btp_code"] == btp]["calc_meters"].sum() if not df_logs.empty else 0
-            actual_kg = df_logs[df_logs["btp_code"] == btp]["weight_kg"].sum() if not df_logs.empty else 0
+            actual_m = df_logs_po[df_logs_po["btp_code"] == btp]["calc_meters"].sum() if not df_logs_po.empty else 0
+            actual_kg = df_logs_po[df_logs_po["btp_code"] == btp]["weight_kg"].sum() if not df_logs_po.empty else 0
             
-            remain_m = target_m - actual_m
+            rem_m = target_m - actual_m
             pct = round((actual_m / target_m) * 100, 1) if target_m > 0 else 0
             
-            dash_summary.append({
+            dash_table.append({
                 "Công Đoạn": b_row["stage"],
                 "Mã BTP": btp,
-                "Mục Tiêu (M)": round(target_m, 0),
-                "Đã Đạt (M)": actual_m,
-                "Còn Lại (M)": round(max(0, remain_m), 0),
-                "Đã Đạt (KG)": actual_kg,
-                "Tiến Độ (%)": f"{pct}%"
+                "KH Mục Tiêu (Mét)": f"{round(target_m, 0):,}",
+                "Thực Tế Đạt (Mét)": f"{actual_m:,}",
+                "Còn Lại (Mét)": f"{round(max(0, rem_m), 0):,}",
+                "Tổng Sản Lượng (KG)": f"{actual_kg:,.1f}",
+                "% Tiến Độ": f"{pct}%"
             })
             
-        st.table(pd.DataFrame(dash_summary))
+        st.table(pd.DataFrame(dash_table))
         
-        st.subheader("⚠️ Kiểm Soát Thất Thoát & Hao Hụt Vô Hình Tại Phân Xưởng")
-        if not df_logs.empty:
-            total_nvl = df_logs["nvl_used_kg"].sum()
-            total_btp_kg = df_logs["weight_kg"].sum()
-            total_scrap_kg = df_logs["scrap_kg"].sum()
-            unseen_scrap = total_nvl - total_btp_kg - total_scrap_kg
+        st.write("##### ⚠️ Đối Soát Thất Thoát Vật Tư Dở Dang (Floor Stock Audit)")
+        if not df_logs_po.empty:
+            tot_nvl = df_logs_po["nvl_used_kg"].sum()
+            tot_btp_kg = df_logs_po["weight_kg"].sum()
+            tot_scrap = df_logs_po["scrap_kg"].sum()
+            unseen_scrap = tot_nvl - tot_btp_kg - tot_scrap
             
-            col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-            col_m1.metric("Tổng NVL Xuất Chạy (kg)", f"{total_nvl:,.1f}")
-            col_m2.metric("Tổng BTP Đạt (kg)", f"{total_btp_kg:,.1f}")
-            col_m3.metric("Tổng Phế Cân Được (kg)", f"{total_scrap_kg:,.1f}")
-            col_m4.metric("Hao Hụt Vô Hình (kg)", f"{unseen_scrap:,.1f}", delta_color="inverse")
+            cm1, cm2, cm3, cm4 = st.columns(4)
+            cm1.metric("Tổng Vật Tư Xuất Chạy", f"{tot_nvl:,.1f} kg")
+            cm2.metric("Tổng BTP/TP Đạt Cân Được", f"{tot_btp_kg:,.1f} kg")
+            cm3.metric("Tổng Phế Cân Được", f"{tot_scrap:,.1f} kg")
+            cm4.metric("Hao Hụt Vô Hình (Chênh lệch)", f"{unseen_scrap:,.1f} kg", delta_color="inverse")
         else:
-            st.info("Chưa có nhật ký sản xuất cho PO này.")
+            st.info("Chưa có dữ liệu nhật ký ca nào được nhập cho PO này.")
+
+# ==========================================
+# TAB 5: BÁO CÁO & XUẤT FILE EXCEL
+# ==========================================
+with tab5:
+    st.subheader("📁 Xuất Báo Cáo Nhật Ký Sản Xuất Ra File Excel")
+    
+    df_all_logs = pd.read_sql_query('''
+    SELECT 
+        log_date AS [Ngày SX],
+        shift_name AS [Ca Chạy],
+        machine_code AS [Mã Máy],
+        worker_name AS [Công Nhân],
+        po_code AS [Mã PO],
+        entry_type AS [Nguồn BTP],
+        btp_code AS [Mã BTP],
+        weight_kg AS [Sản Lượng KG],
+        calc_meters AS [Quy Đổi Mét],
+        nvl_used_kg AS [NVL Thực Dùng KG],
+        scrap_kg AS [Phế Cân Được KG],
+        error_code AS [Mã Lỗi Phế]
+    FROM production_logs ORDER BY id DESC
+    ''', conn)
+    
+    st.dataframe(df_all_logs, use_container_width=True)
+    
+    # Nút bấm xuất file Excel
+    if not df_all_logs.empty:
+        output_excel = BytesIO()
+        with pd.ExcelWriter(output_excel, engine='openpyxl') as writer:
+            df_all_logs.to_excel(writer, index=False, sheet_name='Nhat_Ky_San_Xuat')
+        
+        st.download_button(
+            label="📥 Tải Báo Cáo Nhật Ký SX dạng File Excel (.xlsx)",
+            data=output_excel.getvalue(),
+            file_name=f"Bao_Cao_MES_Cable_{datetime.date.today()}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
