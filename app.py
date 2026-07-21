@@ -1,156 +1,215 @@
 import streamlit as st
 import pandas as pd
+import qrcode
+from io import BytesIO
+from PIL import Image
 
-# Cấu hình trang web
-st.set_page_config(page_title="Hệ thống MES - Quản lý BOM Cáp Mạng", layout="wide")
+# ----------------------------------------------------
+# CONFIG TRANG STREAMLIT
+# ----------------------------------------------------
+st.set_page_config(
+    page_title="Hệ Thống MES - Quản Lý Sản Xuất Cáp Mạng",
+    page_icon="🔌",
+    layout="wide"
+)
 
-st.title("⚡ HỆ THỐNG MES - QUẢN LÝ BOM & TÍNH ĐỊNH MỨC CÁP MẠNG")
-st.caption("Dựa trên quy trình sản xuất cáp 4 cặp xoắn đôi (Core -> Pair -> Assembly -> Sheathing)")
-
-st.divider()
-
-# ==========================================
-# TAB 1: THÔNG TIN ĐƠN HÀNG & QUY ĐỔI MET
-# ==========================================
-st.sidebar.header("📋 1. Thông Tin Đơn Hàng")
-code_scp_bl = st.sidebar.text_input("Mã đơn BL", "SCP.BL.0.55BC")
-qty_bl_pcs = st.sidebar.number_input("Số lượng mã BL (PCS)", value=900)
-
-code_scp_wt = st.sidebar.text_input("Mã đơn WT", "SCP.WT.0.55BC")
-qty_wt_pcs = st.sidebar.number_input("Số lượng mã WT (PCS)", value=396)
-
-pcs_to_meter = st.sidebar.number_input("Quy đổi 1 PCS = (Mét)", value=305.0)
-hao_hut_pct = st.sidebar.number_input("Tỷ lệ hao hụt dự phòng (%)", value=4.0) / 100
-
-# Tính toán tổng mét
-met_bl = qty_bl_pcs * pcs_to_meter
-met_wt = qty_wt_pcs * pcs_to_meter
-met_tong_chua_hh = met_bl + met_wt
-met_hao_hut = met_tong_chua_hh * hao_hut_pct
-met_tong_kh = met_tong_chua_hh + met_hao_hut
-
-st.subheader("📌 0. Tổng Quan Đơn Hàng & Kế Hoạch Sản Xuất")
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Tổng Mét SCP.BL", f"{met_bl:,.1f} m")
-col2.metric("Tổng Mét SCP.WT", f"{met_wt:,.1f} m")
-col3.metric("Mét Hao Hụt Dự Phòng", f"{met_hao_hut:,.1f} m")
-col4.metric("🎯 TỔNG MÉT TP KẾ HOẠCH", f"{met_tong_kh:,.1f} m")
-
-st.divider()
-
-# ==========================================
-# TAB 2: CẤU HÌNH ĐỊNH MỨC TỪNG CÔNG ĐOẠN
-# ==========================================
-tab_boc, tab_xt, tab_xd, tab_loi = st.tabs([
-    "1. ĐỊNH MỨC BỌC VỎ", 
-    "2. ĐỊNH MỨC XOẮN TỔNG", 
-    "3. ĐỊNH MỨC XOẮN ĐÔI", 
-    "4. ĐỊNH MỨC LÕI (8 MÀU)"
-])
-
-with tab_boc:
-    st.markdown("### Định mức Công đoạn Bọc (Tính cho 1 mét Thành phẩm)")
-    col_b1, col_b2 = st.columns(2)
-    with col_b1:
-        tl_pvc = st.number_input("T.L Vỏ PVC (KG/mét)", value=0.013838, format="%.6f")
-        tl_chi = st.number_input("T.L Chỉ xé (KG/mét)", value=0.000149, format="%.6f")
-    with col_b2:
-        od_vo = st.number_input("Đường kính ngoài OD (mm)", value=6.1)
-        he_so_met_boc = st.number_input("Hệ số mét Bọc vỏ", value=1.0)
-
-with tab_xt:
-    st.markdown("### Định mức Công đoạn Xoắn Tổng (BTP.XT.068)")
-    col_xt1, col_xt2 = st.columns(2)
-    with col_xt1:
-        tl_vach = st.number_input("T.L Nhựa vách chữ thập (KG/mét)", value=0.003951, format="%.6f")
-    with col_xt2:
-        he_so_met_xt = st.number_input("Hệ số mét Xoắn tổng", value=1.005)
-
-with tab_xd:
-    st.markdown("### Định mức Xoắn Đôi (4 Cặp màu)")
-    data_xd = {
-        "Cặp màu": ["XD.140.GRWH (Xanh lá - Trắng)", "XD.141.BLWH (Xanh dương - Trắng)", "XD.142.ORWH (Cam - Trắng)", "XD.143.BRWH (Nâu - Trắng)"],
-        "Hệ số mét Xoắn": [1.035, 1.045, 1.030, 1.025]
-    }
-    df_xd = st.data_editor(pd.DataFrame(data_xd), num_rows="dynamic", use_container_width=True)
-
-with tab_loi:
-    st.markdown("### Định mức Chi tiết 8 Lõi Dây")
-    default_loi = {
-        "Mã màu lõi": ["LOI.262.GR", "LOI.263.KẺ XANH LÁ", "LOI.259.BL", "LOI.264.KẺ XANH DƯƠNG", "LOI.261.OR", "LOI.265.KẺ CAM", "LOI.260.BR", "LOI.266.KẺ NÂU"],
-        "T.L Đồng (KG/m)": [0.002157, 0.002157, 0.002159, 0.002159, 0.002133, 0.002133, 0.002113, 0.002113],
-        "T.L Nhựa (KG/m)": [0.000519, 0.000519, 0.000516, 0.000516, 0.000471, 0.000471, 0.000474, 0.000474],
-        "OD Lõi (mm)": [0.977, 0.977, 0.967, 0.967, 0.950, 0.950, 0.955, 0.955],
-        "Hệ số mét Lõi": [1.040, 1.040, 1.050, 1.050, 1.035, 1.035, 1.030, 1.030],
-        "Thuộc Cặp Xoắn": [0, 0, 1, 1, 2, 2, 3, 3] # Chỉ số ứng với 4 cặp ở Tab Xoắn đôi
-    }
-    df_loi = st.data_editor(pd.DataFrame(default_loi), num_rows="dynamic", use_container_width=True)
-
-st.divider()
-
-# ==========================================
-# 3. TÍNH TOÁN VÀ XUẤT BẢNG NGUYÊN VẬT LIỆU
-# ==========================================
-st.subheader("📊 2. Bảng Tổng Hợp Nhu Cầu Nguyên Vật Liệu (Tính theo Đơn hàng)")
-
-if st.button("🚀 TÍNH TOÁN ĐỊNH MỨC NVL", type="primary"):
-    # 1. Tính chiều dài BTP qua các công đoạn
-    met_boc = met_tong_kh * he_so_met_boc
-    met_xoan_tong = met_boc * he_so_met_xt
+# ----------------------------------------------------
+# HÀM BỔ TRỢ: TẠO MÃ QR CODE CHO BTP & TP
+# ----------------------------------------------------
+def create_qr_code(data_string):
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_L,
+        box_size=6,
+        border=2,
+    )
+    qr.add_data(data_string)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
     
-    # 2. Tính cho từng Lõi
-    df_loi_calc = df_loi.copy()
-    
-    # Tính Mét Lõi thực tế = Mét TP * HS_Bọc * HS_XT * HS_XD * HS_Lõi
-    met_loi_list = []
-    kg_dong_list = []
-    kg_nhua_loi_list = []
-    
-    for idx, row in df_loi_calc.iterrows():
-        cap_idx = int(row["Thuộc Cặp Xoắn"])
-        hs_xd = df_xd.iloc[cap_idx]["Hệ số mét Xoắn"]
-        
-        # Hệ số mét tích lũy
-        met_loi_thuc_te = met_xoan_tong * hs_xd * row["Hệ số mét Lõi"]
-        
-        kg_dong = met_loi_thuc_te * row["T.L Đồng (KG/m)"]
-        kg_nhua = met_loi_thuc_te * row["T.L Nhựa (KG/m)"]
-        
-        met_loi_list.append(met_loi_thuc_te)
-        kg_dong_list.append(kg_dong)
-        kg_nhua_loi_list.append(kg_nhua)
-        
-    df_loi_calc["Sản lượng Mét Lõi (m)"] = met_loi_list
-    df_loi_calc["Tổng Đồng (KG)"] = kg_dong_list
-    df_loi_calc["Tổng Nhựa Lõi (KG)"] = kg_nhua_loi_list
-    
-    # Tổng các vật tư chính
-    tong_kg_dong = sum(kg_dong_list)
-    tong_kg_nhua_loi = sum(kg_nhua_loi_list)
-    tong_kg_nhua_vach = met_xoan_tong * tl_vach
-    tong_kg_pvc = met_boc * tl_pvc
-    tong_kg_chi = met_boc * tl_chi
-    
-    tong_nvl_kg = tong_kg_dong + tong_kg_nhua_loi + tong_kg_nhua_vach + tong_kg_pvc + tong_kg_chi
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
 
-    # Hiển thị kết quả chi tiết từng lõi
-    st.markdown("#### A. Bảng Chi Tiết Định Mức 8 Lõi")
-    st.dataframe(df_loi_calc[["Mã màu lõi", "Hệ số mét Lõi", "Sản lượng Mét Lõi (m)", "Tổng Đồng (KG)", "Tổng Nhựa Lõi (KG)"]], use_container_width=True)
+# ----------------------------------------------------
+# SIDEBAR NGUYÊN TẮC VẬN HÀNH & CHỌN MODULE
+# ----------------------------------------------------
+st.sidebar.title("🏭 MES CÁP MẠNG v2.0")
+st.sidebar.caption("Hệ thống Điều hành Sản xuất & Quyết toán Vật tư")
 
-    # Hiển thị bảng tổng hợp NVL xuất kho
-    st.markdown("#### B. Bảng Tổng Hợp Nguyên Vật Liệu Cần Cho Đơn Hàng (KG)")
-    
-    df_summary = pd.DataFrame({
-        "Loại Nguyên Vật Liệu": ["Đồng (0.55BC)", "Nhựa Lõi (HDPE/PE)", "Nhựa Vách Chữ Thập", "Nhựa Vỏ (PVC)", "Chỉ Xé"],
-        "Tổng Khối Lượng (KG)": [tong_kg_dong, tong_kg_nhua_loi, tong_kg_nhua_vach, tong_kg_pvc, tong_kg_chi],
-        "Tỷ lệ % Trong TP": [
-            (tong_kg_dong/tong_nvl_kg)*100, 
-            (tong_kg_nhua_loi/tong_nvl_kg)*100, 
-            (tong_kg_nhua_vach/tong_nvl_kg)*100, 
-            (tong_kg_pvc/tong_nvl_kg)*100, 
-            (tong_kg_chi/tong_nvl_kg)*100
-        ]
-    })
-    
-    st.table(df_summary.style.format({"Tổng Khối Lượng (KG)": "{:,.2f}", "Tỷ lệ % Trong TP": "{:.2f}%"}))
-    st.success(f"⚖️ **TỔNG NGUYÊN VẬT LIỆU CẦN CHUẨN BỊ:** **{tong_nvl_kg:,.2f} KG**")
+module_choice = st.sidebar.radio(
+    "CHỌN MÔ-ĐUN CHỨC NĂNG:",
+    [
+        "1. Quản lý BOM Multi-Level & Tem QR",
+        "2. Tách PO & Lập Lệnh Sản Xuất (LSX)",
+        "3. Nhật ký & Quyết toán / Chốt PO"
+    ]
+)
+
+st.sidebar.divider()
+st.sidebar.info("📌 **Quy tắc MES chuẩn:**\n- 1 Thành phẩm = 1 BOM riêng.\n- Các PO chung công đoạn đầu sẽ GOM tạo 1 LSX BTP xoắn tổng.")
+
+# ====================================================
+# MODULE 1: QUẢN LÝ BOM MULTI-LEVEL & TEM MÃ QR
+# ====================================================
+if module_choice == "1. Quản lý BOM Multi-Level & Tem QR":
+    st.header("📦 MODULE 1: DẠNH MỤC BOM MULTI-LEVEL & TEM QR")
+    st.markdown("---")
+
+    col_left, col_right = st.columns([2, 1])
+
+    with col_left:
+        st.subheader("1. Danh mục Bán Thành Phẩm (BTP) Dùng Chung")
+        btp_data = {
+            "Mã BTP": ["BTP.XT.068"],
+            "Tên BTP": ["Cáp xoắn tổng 4 cặp + Vách chữ thập (Chưa bọc vỏ)"],
+            "Định mức Đồng (KG/m)": [0.017120],
+            "Định mức Nhựa Lõi (KG/m)": [0.003964],
+            "Định mức Nhựa Vách (KG/m)": [0.003951],
+            "Hệ số mét Xoắn": [1.005]
+        }
+        st.dataframe(pd.DataFrame(btp_data), use_container_width=True)
+
+        st.subheader("2. Danh mục Thành Phẩm (1 TP = 1 BOM)")
+        tp_data = {
+            "Mã TP": ["SCP.BL.0.55BC", "SCP.WT.0.55BC"],
+            "Tên Thành Phẩm": ["Cat6 UTP Xanh Dương", "Cat6 UTP Trắng"],
+            "Mã BTP Cấp Vào": ["BTP.XT.068", "BTP.XT.068"],
+            "Loại Nhựa Vỏ": ["PVC Xanh Dương", "PVC Trắng"],
+            "Định mức Vỏ (KG/m)": [0.013838, 0.013838],
+            "Định mức Chỉ (KG/m)": [0.000149, 0.000149]
+        }
+        st.dataframe(pd.DataFrame(tp_data), use_container_width=True)
+
+    with col_right:
+        st.subheader("🖨️ In Tem QR Bán Thành Phẩm")
+        btp_code_select = st.selectbox("Chọn Mã BTP tạo Tem:", ["BTP.XT.068", "SCP.BL.0.55BC", "SCP.WT.0.55BC"])
+        lot_no = st.text_input("Nhập Số Lô / Ca chạy máy:", value="LOT-20260722-01")
+        len_m = st.number_input("Chiều dài cuộn (mét):", value=3050.0)
+
+        qr_payload = f"CODE:{btp_code_select}|LOT:{lot_no}|QTY:{len_m}M"
+        qr_img_bytes = create_qr_code(qr_payload)
+
+        st.image(qr_img_bytes, caption=f"Tem QR: {btp_code_select}", width=180)
+        st.download_button(
+            label="⬇️ Tải Tem QR (PNG)",
+            data=qr_img_bytes,
+            file_name=f"QR_{btp_code_select}_{lot_no}.png",
+            mime="image/png"
+        )
+
+# ====================================================
+# MODULE 2: TÁCH PO & LẬP LỆNH SẢN XUẤT (LSX)
+# ====================================================
+elif module_choice == "2. Tách PO & Lập Lệnh Sản Xuất (LSX)":
+    st.header("⚙️ MODULE 2: TÁCH PO & TẠO LỆNH SẢN XUẤT (LSX)")
+    st.markdown("---")
+
+    st.subheader("1. Tiếp Nhận Đơn Hàng (PO) Từ Kinh Doanh")
+    c1, c2 = st.columns(2)
+    with c1:
+        po1_pcs = st.number_input("PO-01: Cat6 Xanh Dương (SCP.BL) - Số cuộn:", value=900)
+    with c2:
+        po2_pcs = st.number_input("PO-02: Cat6 Trắng (SCP.WT) - Số cuộn:", value=396)
+
+    pcs_m = 305.0
+    buffer_rate = 0.04 # Dự phòng phế bọc 4%
+
+    met_po1 = po1_pcs * pcs_m * (1 + buffer_rate)
+    met_po2 = po2_pcs * pcs_m * (1 + buffer_rate)
+
+    if st.button("🔄 PHÂN TÍCH TÁCH PO & GOM LỆNH BTP", type="primary"):
+        st.success("✅ Đã tính toán và tách Lệnh sản xuất theo từng xưởng thành công!")
+
+        # A. LSX BTP GOM CHUNG
+        st.subheader("🔵 A. Lệnh Sản Xuất BTP (Gom Chung Cho Xưởng Kéo & Xoắn)")
+        met_btp_tong = (met_po1 + met_po2) * 1.005
+
+        df_lsx_btp = pd.DataFrame({
+            "Mã LSX BTP": ["LSX-BTP-2026-01"],
+            "Mã BTP Cần Chạy": ["BTP.XT.068"],
+            "Nguồn Gom PO": ["PO-01 + PO-02"],
+            "Tổng Mét BTP Chạy (m)": [met_btp_tong],
+            "Nhu cầu Đồng (kg)": [met_btp_tong * 0.017120],
+            "Nhu cầu Nhựa Lõi (kg)": [met_btp_tong * 0.003964],
+            "Nhu cầu Nhựa Vách (kg)": [met_btp_tong * 0.003951]
+        })
+        st.dataframe(df_lsx_btp.style.format({
+            "Tổng Mét BTP Chạy (m)": "{:,.1f}",
+            "Nhu cầu Đồng (kg)": "{:,.2f}",
+            "Nhu cầu Nhựa Lõi (kg)": "{:,.2f}",
+            "Nhu cầu Nhựa Vách (kg)": "{:,.2f}"
+        }), use_container_width=True)
+
+        # B. LSX THÀNH PHẨM TÁCH RIÊNG
+        st.subheader("🟢 B. Lệnh Sản Xuất Thành Phẩm (Tách Riêng Cho Xưởng Bọc Vỏ)")
+        df_lsx_tp = pd.DataFrame({
+            "Mã LSX Bọc": ["LSX-TP-BL-01", "LSX-TP-WT-02"],
+            "Thuộc PO": ["PO-01", "PO-02"],
+            "Mã TP": ["SCP.BL.0.55BC", "SCP.WT.0.55BC"],
+            "Màu Vỏ": ["Xanh Dương", "Trắng"],
+            "Mục tiêu Mét Bọc (m)": [met_po1, met_po2],
+            "BTP Cần Xuất Dùng (m)": [met_po1, met_po2],
+            "Nhu cầu Nhựa PVC (kg)": [met_po1 * 0.013838, met_po2 * 0.013838]
+        })
+        st.dataframe(df_lsx_tp.style.format({
+            "Mục tiêu Mét Bọc (m)": "{:,.1f}",
+            "BTP Cần Xuất Dùng (m)": "{:,.1f}",
+            "Nhu cầu Nhựa PVC (kg)": "{:,.2f}"
+        }), use_container_width=True)
+
+# ====================================================
+# MODULE 3: QUYẾT TOÁN & CHỐT PO
+# ====================================================
+elif module_choice == "3. Nhật ký & Quyết toán / Chốt PO":
+    st.header("🔒 MODULE 3: BÁO CÁO QUYẾT TOÁN & CHỐT PO")
+    st.markdown("---")
+
+    po_select = st.selectbox("Chọn PO cần chốt quyết toán:", ["PO-01 (SCP.BL - Xanh Dương)", "PO-02 (SCP.WT - Trắng)"])
+
+    st.subheader("1. Nhập Số Liệu Báo Cáo Thực Tế Từ Nhà Xưởng")
+    ca1, ca2, ca3 = st.columns(3)
+    with ca1:
+        tp_m = st.number_input("Thành phẩm nhập kho đạt QA (m):", value=274500.0)
+    with ca2:
+        dong_xuat = st.number_input("Đồng thực xuất dùng (kg):", value=4820.0)
+        pvc_xuat = st.number_input("Nhựa PVC thực xuất dùng (kg):", value=3880.0)
+    with ca3:
+        phe_dong = st.number_input("Phế Đồng cân thu hồi (kg):", value=85.5)
+        phe_pvc = st.number_input("Phế PVC cân thu hồi (kg):", value=62.0)
+
+    st.divider()
+
+    if st.button("🔴 BẤM CHỐT PO & XUẤT BÁO CÁO", type="primary"):
+        # Tính toán
+        dong_bom = tp_m * 1.005 * 0.017120
+        dong_tp_chua = tp_m * 0.017120
+        hao_hut_dong_tong = dong_xuat - dong_bom
+        hao_hut_dong_vo_hinh = dong_xuat - (dong_tp_chua + phe_dong)
+
+        pvc_bom = tp_m * 0.013838
+        hao_hut_pvc_tong = pvc_xuat - pvc_bom
+        hao_hut_pvc_vo_hinh = pvc_xuat - (pvc_bom + phe_pvc)
+
+        st.subheader(f"📊 Kết Quả Quyết Toán Nguyên Vật Liệu - {po_select}")
+
+        res_df = pd.DataFrame({
+            "Loại NVL": ["Đồng 0.55BC", "Nhựa Vỏ PVC"],
+            "Định Mức BOM (kg)": [dong_bom, pvc_bom],
+            "Thực Xuất Kho (kg)": [dong_xuat, pvc_xuat],
+            "Phế Cân Thu Hồi (kg)": [phe_dong, phe_pvc],
+            "Hao Hụt Vô Hình / Mất Mát (kg)": [hao_hut_dong_vo_hinh, hao_hut_pvc_vo_hinh],
+            "Chênh Lệch So BOM (kg)": [hao_hut_dong_tong, hao_hut_pvc_tong],
+            "Tỷ Lệ Hao Hụt Total (%)": [(hao_hut_dong_tong/dong_xuat)*100, (hao_hut_pvc_tong/pvc_xuat)*100]
+        })
+
+        st.dataframe(res_df.style.format({
+            "Định Mức BOM (kg)": "{:,.2f}",
+            "Thực Xuất Kho (kg)": "{:,.2f}",
+            "Phế Cân Thu Hồi (kg)": "{:,.2f}",
+            "Hao Hụt Vô Hình / Mất Mát (kg)": "{:,.2f}",
+            "Chênh Lệch So BOM (kg)": "{:,.2f}",
+            "Tỷ Lệ Hao Hụt Total (%)": "{:.2f}%"
+        }), use_container_width=True)
+
+        st.warning("💡 **Giải thích chỉ số:**\n- **Hao hụt vô hình:** Số kg vật tư bị mất đi không đong đếm được (cháy nhựa, sai số cân, dôi hao chiều dài).\n- **Chênh lệch so BOM:** Mức độ tiêu hao vượt hoặc hụt so với chuẩn phòng kỹ thuật đặt ra.")
